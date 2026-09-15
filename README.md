@@ -55,9 +55,15 @@ const TABS = [
 
 Tambah, hapus, atau ganti `path` sesuai halaman yang ada di website kamu.
 
-## 6. Ganti ikon aplikasi
+## 6. Ganti logo
 
-`public/icon-192.png` dan `public/icon-512.png` saat ini masih ikon placeholder (❄ sederhana). Ganti dengan logo FrostyUp asli (ukuran sama) supaya saat di-"Add to Home Screen" dari HP, ikonnya sesuai brand.
+Ganti logo cukup dengan **menimpa file gambar**, tidak perlu edit kode sama sekali. Siapkan 1 gambar logo FrostyUp kamu (persegi, disarankan minimal 512×512px, format PNG), lalu simpan/salin file itu ke folder `public/` dengan 3 nama berikut (boleh file yang sama persis, tinggal disalin 3 kali dengan nama beda):
+
+- `public/logo.png` → logo yang tampil di dalam aplikasi (pojok kiri atas & di kartu "Pasang Aplikasi")
+- `public/icon-192.png` → ikon saat aplikasi dipasang di layar utama HP
+- `public/icon-512.png` → ikon versi resolusi tinggi (dipakai sistem Android/iOS)
+
+Setelah file-nya ditimpa, push lagi ke GitHub seperti biasa (`git add .` → `git commit -m "Ganti logo"` → `git push`) — Vercel otomatis re-deploy dan logo baru langsung tampil.
 
 ## 7. "Add to Home Screen" di Android & iOS
 

@@ -27,6 +27,10 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id">
+      <head>
+        <link rel="preconnect" href="https://www.frostyup.id" />
+        <link rel="dns-prefetch" href="https://www.frostyup.id" />
+      </head>
       <body>{children}</body>
     </html>
   );

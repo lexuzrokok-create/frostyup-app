@@ -17,20 +17,33 @@ const TABS = [
 
 export default function AppShell() {
   const [activeTab, setActiveTab] = useState("home");
-  const [loading, setLoading] = useState(true);
-  const [blocked, setBlocked] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
+  // Which tabs have ever been opened -> their iframe gets mounted once,
+  // then stays mounted (just hidden) so switching tabs back is instant
+  // instead of reloading the whole page again.
+  const [visited, setVisited] = useState({ home: true });
+  // Per-tab load status: "loading" | "loaded" | "blocked"
+  const [status, setStatus] = useState({ home: "loading" });
+  const [reloadTokens, setReloadTokens] = useState({});
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installBanner, setInstallBanner] = useState(null); // "android" | "ios" | null
-  const timeoutRef = useRef(null);
+  const timeoutsRef = useRef({});
 
   const current = TABS.find((t) => t.id === activeTab);
-  const url = BASE_URL + current.path;
+  const currentUrl = BASE_URL + current.path;
 
-  // Register the service worker + decide whether to show an
-  // "add to home screen" banner (skip it if already installed,
-  // or if the visitor dismissed it before).
+  function markLoading(tabId) {
+    setStatus((s) => ({ ...s, [tabId]: "loading" }));
+    clearTimeout(timeoutsRef.current[tabId]);
+    timeoutsRef.current[tabId] = setTimeout(() => {
+      setStatus((s) => (s[tabId] === "loading" ? { ...s, [tabId]: "blocked" } : s));
+    }, 6000);
+  }
+
+  // Start the timeout for the first (home) tab on mount, and register the
+  // service worker + decide whether to show an "add to home screen" banner.
   useEffect(() => {
+    markLoading("home");
+
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
@@ -40,20 +53,26 @@ export default function AppShell() {
       window.navigator.standalone === true;
     const dismissed = localStorage.getItem("frostyup-install-dismissed");
 
-    if (isStandalone || dismissed) return;
+    if (!isStandalone && !dismissed) {
+      const isIOS = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+      if (isIOS) setInstallBanner("ios");
 
-    const isIOS = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-    if (isIOS) {
-      setInstallBanner("ios");
+      function handleBeforeInstall(e) {
+        e.preventDefault();
+        setInstallPrompt(e);
+        setInstallBanner("android");
+      }
+      window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+      return () => {
+        window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+        Object.values(timeoutsRef.current).forEach(clearTimeout);
+      };
     }
 
-    function handleBeforeInstall(e) {
-      e.preventDefault();
-      setInstallPrompt(e);
-      setInstallBanner("android");
-    }
-    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
-    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+    return () => {
+      Object.values(timeoutsRef.current).forEach(clearTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dismissInstallBanner() {
@@ -69,31 +88,26 @@ export default function AppShell() {
     dismissInstallBanner();
   }
 
-  useEffect(() => {
-    setLoading(true);
-    setBlocked(false);
-    clearTimeout(timeoutRef.current);
-    // If the page hasn't loaded after a few seconds, the site is likely
-    // refusing to be embedded (X-Frame-Options / CSP frame-ancestors).
-    timeoutRef.current = setTimeout(() => {
-      setLoading(false);
-      setBlocked(true);
-    }, 6000);
-    return () => clearTimeout(timeoutRef.current);
-  }, [activeTab, reloadKey]);
+  function handleTabClick(tabId) {
+    setActiveTab(tabId);
+    if (!visited[tabId]) {
+      setVisited((v) => ({ ...v, [tabId]: true }));
+      markLoading(tabId);
+    }
+  }
 
-  function handleLoad() {
-    clearTimeout(timeoutRef.current);
-    setLoading(false);
-    setBlocked(false);
+  function handleLoad(tabId) {
+    clearTimeout(timeoutsRef.current[tabId]);
+    setStatus((s) => ({ ...s, [tabId]: "loaded" }));
   }
 
   function handleRefresh() {
-    setReloadKey((k) => k + 1);
+    setReloadTokens((r) => ({ ...r, [activeTab]: (r[activeTab] || 0) + 1 }));
+    markLoading(activeTab);
   }
 
   function handleOpenExternal() {
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(currentUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -101,7 +115,7 @@ export default function AppShell() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">
-            <SnowflakeIcon />
+            <img src="/logo.png" alt="FrostyUp" className="brand-logo" />
           </span>
           <span className="brand-name">FrostyUp</span>
         </div>
@@ -115,56 +129,76 @@ export default function AppShell() {
         </div>
       </header>
 
-      {installBanner === "android" && (
-        <div className="install-banner">
-          <span>Pasang FrostyUp di layar utama HP-mu</span>
-          <div className="install-banner-actions">
-            <button className="install-btn" onClick={handleInstallClick}>
-              Install
-            </button>
-            <button className="icon-btn small" aria-label="Tutup" onClick={dismissInstallBanner}>
+      <main className="webview">
+        {installBanner && (
+          <div className="install-toast">
+            <span className="install-toast-icon">
+              <img src="/logo.png" alt="FrostyUp" className="brand-logo" />
+            </span>
+            <div className="install-toast-text">
+              <strong>Pasang Aplikasi FrostyUp</strong>
+              <span>
+                {installBanner === "android"
+                  ? "Tambah ke home screen buat pengalaman lebih baik!"
+                  : "Tap Share lalu \"Add to Home Screen\" untuk pasang"}
+              </span>
+            </div>
+            {installBanner === "android" && (
+              <button className="install-toast-btn" onClick={handleInstallClick}>
+                Pasang
+              </button>
+            )}
+            <button
+              className="install-toast-close"
+              aria-label="Tutup"
+              onClick={dismissInstallBanner}
+            >
               <CloseIcon />
             </button>
           </div>
-        </div>
-      )}
-
-      {installBanner === "ios" && (
-        <div className="install-banner">
-          <span>
-            Tap <ShareIcon /> lalu <strong>"Add to Home Screen"</strong> untuk pasang FrostyUp
-          </span>
-          <button className="icon-btn small" aria-label="Tutup" onClick={dismissInstallBanner}>
-            <CloseIcon />
-          </button>
-        </div>
-      )}
-
-      <main className="webview">
-        {loading && (
-          <div className="state-overlay">
-            <div className="spinner" />
-            <p>Memuat {current.label.toLowerCase()}…</p>
-          </div>
         )}
 
-        {blocked && (
-          <div className="state-overlay">
-            <p className="state-title">Halaman ini belum bisa ditampilkan di dalam aplikasi</p>
-            <p>Buka langsung di browser untuk melanjutkan.</p>
-            <button className="cta" onClick={handleOpenExternal}>
-              Buka di browser
-            </button>
-          </div>
-        )}
+        {TABS.map((tab) => {
+          if (!visited[tab.id]) return null;
+          const tabStatus = status[tab.id];
+          const isActiveTab = tab.id === activeTab;
+          const tabUrl = BASE_URL + tab.path;
+          return (
+            <div
+              key={tab.id}
+              className="webview-pane"
+              style={{ display: isActiveTab ? "block" : "none" }}
+            >
+              {tabStatus === "loading" && (
+                <div className="state-overlay">
+                  <div className="spinner" />
+                  <p>Memuat {tab.label.toLowerCase()}…</p>
+                </div>
+              )}
 
-        <iframe
-          key={activeTab + "-" + reloadKey}
-          src={url}
-          title={current.label}
-          onLoad={handleLoad}
-          className="frame"
-        />
+              {tabStatus === "blocked" && (
+                <div className="state-overlay">
+                  <p className="state-title">Halaman ini belum bisa ditampilkan di dalam aplikasi</p>
+                  <p>Buka langsung di browser untuk melanjutkan.</p>
+                  <button
+                    className="cta"
+                    onClick={() => window.open(tabUrl, "_blank", "noopener,noreferrer")}
+                  >
+                    Buka di browser
+                  </button>
+                </div>
+              )}
+
+              <iframe
+                key={tab.id + "-" + (reloadTokens[tab.id] || 0)}
+                src={tabUrl}
+                title={tab.label}
+                onLoad={() => handleLoad(tab.id)}
+                className="frame"
+              />
+            </div>
+          );
+        })}
       </main>
 
       <nav className="bottomnav">
@@ -175,7 +209,7 @@ export default function AppShell() {
             <button
               key={tab.id}
               className={"navitem" + (isActive ? " active" : "")}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabClick(tab.id)}
             >
               <Icon />
               <span>{tab.label}</span>
@@ -188,14 +222,6 @@ export default function AppShell() {
 }
 
 /* --- Minimal inline icons (no extra dependencies) --- */
-
-function SnowflakeIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 2v20M4.9 4.9l14.2 14.2M19.1 4.9L4.9 19.1M2 12h20M7 7l-3-1M7 7l1-3M17 7l3-1M17 7l-1-3M7 17l-3 1M7 17l1 3M17 17l3 1M17 17l-1 3" />
-    </svg>
-  );
-}
 
 function HomeIcon() {
   return (
@@ -245,15 +271,6 @@ function CloseIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function ShareIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "-2px", margin: "0 2px" }}>
-      <path d="M12 16V4M7 8l5-5 5 5" />
-      <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
     </svg>
   );
 }
