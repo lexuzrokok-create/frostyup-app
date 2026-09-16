@@ -26,6 +26,7 @@ export default function AppShell() {
   const [reloadTokens, setReloadTokens] = useState({});
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installBanner, setInstallBanner] = useState(null); // "android" | "ios" | null
+  const [showAccountHint, setShowAccountHint] = useState(true);
   const timeoutsRef = useRef({});
 
   const current = TABS.find((t) => t.id === activeTab);
@@ -167,8 +168,23 @@ export default function AppShell() {
             <div
               key={tab.id}
               className="webview-pane"
-              style={{ display: isActiveTab ? "block" : "none" }}
+              style={{ display: isActiveTab ? "flex" : "none" }}
             >
+              {tab.id === "account" && showAccountHint && (
+                <div className="account-hint">
+                  <span>
+                    Mau login pakai Google? Tap <ExternalIcon /> di pojok kanan atas dulu, baru login di situ.
+                  </span>
+                  <button
+                    className="account-hint-close"
+                    aria-label="Tutup"
+                    onClick={() => setShowAccountHint(false)}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              )}
+
               {tabStatus === "loading" && (
                 <div className="state-overlay">
                   <div className="spinner" />
